@@ -9,8 +9,8 @@ enum class ResponseCode: uint8_t {
 	FAIL,
 	UNKNOWN_PACKET,
 	PROGRESS,
-	FILE,
-	FILE_CONTENT,
+
+	SAMPLE_RESULT = 40,
 };
 
 enum PacketType: uint8_t {
@@ -28,8 +28,7 @@ enum PacketType: uint8_t {
 	CAN_END,
 	CAN_SEND,
 
-	START_SAMPLING = 40,
-	END_SAMPLING
+	SAMPLE_CONTROL = 40,
 };
 
 struct Packed PinConfigPacket {
@@ -61,21 +60,27 @@ struct Packed CanFramePacket {
 	uint8_t remoteTransmissionRequest;
 	int requestLength;
 	int packetSize;
-	uint8_t data[64];
+	uint8_t data[8];
+};
+
+struct Packed SamplingControlPacket {
+	uint8_t channel1;
+	uint8_t channel2;
+	uint8_t channel3;
 };
 
 struct Packed SamplingPacket {
-	uint16_t io12;
-	uint16_t io13;
-	uint16_t io14;
+	uint16_t rail5VChannel1;
+	uint16_t rail5VChannel2;
+	uint16_t rail5VChannel3;
 
-	uint16_t io26;
-	uint16_t io27;
-	uint16_t io32;
+	uint16_t rail20VChannel1;
+	uint16_t rail20VChannel2;
+	uint16_t rail20VChannel3;
 
-	uint16_t io33;
-	uint16_t io34;
-	uint16_t io35;
+	uint16_t rail200VChannel1;
+	uint16_t rail200VChannel2;
+	uint16_t rail200VChannel3;
 };
 
 // System packets

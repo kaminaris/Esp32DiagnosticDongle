@@ -1,53 +1,22 @@
 #include "AppSerial.h"
 
+extern ExtADC ADS5V;
+extern ExtADC ADS20V;
+extern ExtADC ADS200V;
+
 NimBLEServer* pServer = nullptr;
 NimBLECharacteristic* pTxCharacteristic;
 NimBLECharacteristic* pDebugCharacteristic;
 NimBLECharacteristic* pCanCharacteristic;
 NimBLECharacteristic* pSamplingCharacteristic;
 
-bool samplingStarted = false;
-TaskHandle_t samplingHandle = nullptr;
+struct BasicResponse okResponse = {(uint8_t)ResponseCode::OK};
+struct BasicResponse failResponse = {(uint8_t)ResponseCode::FAIL};
+struct BasicResponse unknownPacketResponse = {(uint8_t)ResponseCode::UNKNOWN_PACKET};
+struct ProgressResponse progressResponse = {.r = (uint8_t)ResponseCode::PROGRESS, .progress = 0};
 
-struct BasicResponse okResponse = { (uint8_t)ResponseCode::OK };
-struct BasicResponse failResponse = { (uint8_t)ResponseCode::FAIL };
-struct BasicResponse unknownPacketResponse = { (uint8_t)ResponseCode::UNKNOWN_PACKET };
-struct ProgressResponse progressResponse = { .r = (uint8_t)ResponseCode::PROGRESS, .progress = 0 };
-
-void SampleADC(void* t) {
-	while (true) {
-		// 200V dividers
-		uint16_t io12 = analogRead(12);
-		uint16_t io13 = analogRead(13);
-		uint16_t io14 = analogRead(14);
-		// 20V dividers
-		uint16_t io26 = analogRead(26);
-		uint16_t io27 = analogRead(27);
-		uint16_t io32 = analogRead(32);
-		// 5V dividers
-		uint16_t io33 = analogRead(33);
-		uint16_t io34 = analogRead(34);
-		uint16_t io35 = analogRead(35);
-
-		struct SamplingPacket frame = {
-			.io12 = io12,
-			.io13 = io13,
-			.io14 = io14,
-
-			.io26 = io26,
-			.io27 = io27,
-			.io32 = io32,
-
-			.io33 = io33,
-			.io34 = io34,
-			.io35 = io35,
-		};
-
-		pSamplingCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
-		pSamplingCharacteristic->notify();
-		vTaskDelay(pdMS_TO_TICKS(1));
-	}
-}
+bool canStarted = false;
+auto canQueue = xQueueCreate(10, sizeof(CanFramePacket));
 
 void onReceive(int packetSize) {
 	struct CanFramePacket frame = {
@@ -56,19 +25,35 @@ void onReceive(int packetSize) {
 		.remoteTransmissionRequest = CAN.packetRtr(),
 		.requestLength = CAN.packetDlc(),
 		.packetSize = packetSize,
-		.data = { 0 }
-	};
+		.data = {0}};
 
 	uint8_t pos = 0;
 	if (!CAN.packetRtr()) {
 		while (CAN.available()) {
 			frame.data[pos] = (uint8_t)CAN.read();
+			// Serial.print((char)CAN.read());
 			pos++;
 		}
 	}
+	xQueueSend(canQueue, &frame, 0);
+}
 
-	pCanCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
-	pCanCharacteristic->notify();
+void sendCanQueue(void* p) {
+	struct CanFramePacket frame = {};
+	while (true) {
+		if (xQueueReceive(canQueue, &frame, 0) == pdPASS) {
+			pCanCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
+			pCanCharacteristic->notify();
+		}
+
+		delay(10);
+
+		if (!canStarted) {
+			break;
+		}
+	}
+
+	vTaskDelete(nullptr);
 }
 
 void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
@@ -84,7 +69,6 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 		// Serial.printf("Received packet: %d", packetType);
 
 		switch (packetType) {
-
 			case PacketType::PIN_CONFIGURE: {
 				auto* request = (PinConfigPacket*)data;
 
@@ -104,14 +88,11 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::PIN_READ: {
-				auto* request = (PinWritePacket*)data; // we can use same packet
+				auto* request = (PinWritePacket*)data;	// we can use same packet
 
 				auto result = digitalRead(request->pin);
 
-				struct PinReadResult readResponse = {
-					.pin = request->pin,
-					.value = result
-				};
+				struct PinReadResult readResponse = {.pin = request->pin, .value = result};
 
 				pTxCharacteristic->setValue((uint8_t*)&readResponse, sizeof(readResponse));
 				pTxCharacteristic->notify();
@@ -119,14 +100,11 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::PIN_ANALOG_READ: {
-				auto* request = (PinWritePacket*)data; // we can use same packet
+				auto* request = (PinWritePacket*)data;	// we can use same packet
 
 				auto result = analogRead(request->pin);
 
-				struct PinReadResult readResponse = {
-					.pin = request->pin,
-					.value = result
-				};
+				struct PinReadResult readResponse = {.pin = request->pin, .value = result};
 
 				pTxCharacteristic->setValue((uint8_t*)&readResponse, sizeof(readResponse));
 				pTxCharacteristic->notify();
@@ -134,25 +112,28 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::CAN_BEGIN: {
-				auto* request = (CanBeginPacket*)data; // we can use same packet
+				auto* request = (CanBeginPacket*)data;	// we can use same packet
 
 				// Board has CAN on gpio pins on 2 and 4
 				CAN.setPins(GPIO_NUM_2, GPIO_NUM_4);
 				auto result = CAN.begin(request->baud);
-
-				struct CanBeginResponse response = {
-					.result = result
-				};
+				appSerial.printf("Starting CANBUS baud: %ld, result: %d", request->baud, result);
 
 				CAN.onReceive(onReceive);
+				CAN.loopback();
 
-				pTxCharacteristic->setValue((uint8_t*)&response, sizeof(response));
-				pTxCharacteristic->notify();
+				if (result == 1) {
+					xTaskCreatePinnedToCore(sendCanQueue, "CanSend", 2048, nullptr, 0, nullptr, 0);
+					canStarted = true;
+				}
+
+				AppSerial::respondCanResult(result);
 				break;
 			}
 
 			case PacketType::CAN_END: {
 				CAN.end();
+				canStarted = false;
 
 				AppSerial::respondOk();
 				break;
@@ -160,45 +141,50 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 			case PacketType::CAN_SEND: {
 				auto* request = (CanFramePacket*)data;
-
+				// appSerial.printf(
+				// 	"Sending CANBUS packet id: %ld, size: %d, ext: %d, rtr: %d, rl: %d, tst: %d\n",
+				// 	request->id,
+				// 	request->packetSize,
+				// 	request->extended,
+				// 	request->remoteTransmissionRequest,
+				// 	request->requestLength,
+				// 	sizeof(long)
+				// );
+				int result;
 				if (request->extended) {
-					CAN.beginExtendedPacket(request->id);
+					result = CAN.beginExtendedPacket(
+						request->id, request->requestLength, request->remoteTransmissionRequest
+					);
 				}
 				else {
-					CAN.beginPacket(request->id);
+					result = CAN.beginPacket(request->id, request->requestLength, request->remoteTransmissionRequest);
+				}
+
+				if (result != 1) {
+					AppSerial::respondCanResult(result);
+					break;
 				}
 
 				for (int i = 0; i < request->packetSize; i++) {
 					CAN.write(request->data[i]);
 				}
 
-				CAN.endPacket();
+				result = CAN.endPacket();
+
+				AppSerial::respondCanResult(result);
+				break;
+			}
+
+			case PacketType::SAMPLE_CONTROL: {
+				auto* request = (SamplingControlPacket*)data;
+
+				ADS5V.toggleConversion(request->channel1);
+				ADS20V.toggleConversion(request->channel2);
+				ADS200V.toggleConversion(request->channel3);
 
 				AppSerial::respondOk();
 				break;
 			}
-
-			case PacketType::START_SAMPLING: {
-				if (!samplingStarted) {
-					samplingStarted = true;
-					xTaskCreatePinnedToCore(
-						SampleADC, "ADC Sample", 16384, (void*)this, 10,
-						&samplingHandle, 1);
-				}
-				AppSerial::respondOk();
-				break;
-			}
-
-			case PacketType::END_SAMPLING: {
-				if (samplingStarted) {
-					vTaskDelete(samplingHandle);
-					samplingStarted = false;
-				}
-
-				AppSerial::respondOk();
-				break;
-			}
-
 
 				// System responses
 
@@ -249,17 +235,17 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			case PacketType::FIRMWARE_UPDATE: {
 				auto* request = (FirmwareUpdateRequest*)data;
 
-				auto chunkCrc = CRC32.crc32(request->d, request->size);
-				if (chunkCrc != request->checksum) {
-					appSerial.printf(
-						"Chunk CRC does not match! Calculated: %08X Given: %08X \n", chunkCrc, request->checksum
-					);
-
-					Update.rollBack();
-					Update.abort();
-					AppSerial::respondFail();
-					break;
-				}
+				// auto chunkCrc = CRC32.crc32(request->d, request->size);
+				// if (chunkCrc != request->checksum) {
+				// 	appSerial.printf(
+				// 		"Chunk CRC does not match! Calculated: %08X Given: %08X \n", chunkCrc, request->checksum
+				// 	);
+				//
+				// 	Update.rollBack();
+				// 	Update.abort();
+				// 	AppSerial::respondFail();
+				// 	break;
+				// }
 
 				if (request->chunk == 1) {
 					if (!Update.begin(request->totalSize, U_FLASH)) {
@@ -319,7 +305,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 }
 
 void MyServerCallbacks::onConnect(NimBLEServer* server, ble_gap_conn_desc* desc) {
-	deviceConnected = true;
+	// deviceConnected = true;
 	appSerial.print("Client address: ");
 	appSerial.println(NimBLEAddress(desc->peer_ota_addr).toString().c_str());
 	server->updateConnParams(desc->conn_handle, 6, 6, 0, 60);
@@ -330,7 +316,7 @@ void MyServerCallbacks::onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer* server) {
-	deviceConnected = false;
+	// deviceConnected = false;
 	NimBLEDevice::startAdvertising();
 }
 
@@ -384,15 +370,22 @@ void AppSerial::respondFail() {
 	pTxCharacteristic->notify();
 }
 
+void AppSerial::respondCanResult(int result) {
+	struct CanBeginResponse response = {.result = result};
+
+	pTxCharacteristic->setValue((uint8_t*)&response, sizeof(response));
+	pTxCharacteristic->notify();
+}
+
 void AppSerial::respondUnknownPacket() {
 	pTxCharacteristic->setValue((uint8_t*)&unknownPacketResponse, sizeof(unknownPacketResponse));
 	pTxCharacteristic->notify();
 }
 
 size_t AppSerial::write(uint8_t character) {
-	#ifdef DUAL_SERIAL
+#ifdef DUAL_SERIAL
 	Serial.write(character);
-	#endif
+#endif
 	if (pDebugCharacteristic == nullptr) {
 		return 0;
 	}
@@ -404,9 +397,9 @@ size_t AppSerial::write(uint8_t character) {
 }
 
 size_t AppSerial::write(const uint8_t* buffer, size_t size) {
-	#ifdef DUAL_SERIAL
+#ifdef DUAL_SERIAL
 	Serial.write(buffer, size);
-	#endif
+#endif
 	if (pDebugCharacteristic == nullptr) {
 		return 0;
 	}
@@ -415,6 +408,11 @@ size_t AppSerial::write(const uint8_t* buffer, size_t size) {
 	pDebugCharacteristic->notify();
 
 	return size;
+}
+
+void AppSerial::notifySampling(const uint8_t* buffer, size_t size) {
+	pSamplingCharacteristic->setValue(buffer, size);
+	pSamplingCharacteristic->notify();
 }
 
 AppSerial appSerial;
