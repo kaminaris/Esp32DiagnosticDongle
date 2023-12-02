@@ -29,6 +29,15 @@ enum PacketType: uint8_t {
 	CAN_SEND,
 
 	SAMPLE_CONTROL = 40,
+
+	UART_BEGIN = 50,
+	UART_END,
+	UART_SEND,
+
+	I2C_BEGIN = 60,
+	I2C_END,
+	I2C_SEND,
+	I2C_TRANSACTION,
 };
 
 struct Packed PinConfigPacket {
@@ -67,6 +76,21 @@ struct Packed SamplingControlPacket {
 	uint8_t channel1;
 	uint8_t channel2;
 	uint8_t channel3;
+};
+
+struct Packed UartBeginRequest {
+	uint32_t baud;
+	uint32_t config;
+};
+
+struct Packed UartDataPacket {
+	uint32_t dataLength;
+	uint8_t data[256];
+};
+
+struct Packed I2cDataPacket {
+	uint32_t dataLength;
+	uint8_t data[256];
 };
 
 struct Packed SamplingPacket {
