@@ -22,6 +22,8 @@ constexpr char CHARACTERISTIC_UUID_DEBUG[] = "9C12D204-CBC3-413B-963B-9E49FF7E7D
 constexpr char CHARACTERISTIC_UUID_CAN[] = "9C12D205-CBC3-413B-963B-9E49FF7E7D61";
 constexpr char CHARACTERISTIC_UUID_SAMPLING[] = "9C12D206-CBC3-413B-963B-9E49FF7E7D61";
 constexpr char CHARACTERISTIC_UUID_UART[] = "9C12D207-CBC3-413B-963B-9E49FF7E7D61";
+constexpr char CHARACTERISTIC_UUID_I2C[] = "9C12D208-CBC3-413B-963B-9E49FF7E7D61";
+constexpr char CHARACTERISTIC_UUID_SPI[] = "9C12D209-CBC3-413B-963B-9E49FF7E7D61";
 
 #define DUAL_SERIAL
 
@@ -45,7 +47,7 @@ class AppSerial : public Print {
 	static void setup();
 	static void respondOk();
 	static void respondFail();
-	static void respondCanResult(int result);
+	static void respondResult(int result);
 	static void respondUnknownPacket();
 };
 

@@ -4,7 +4,7 @@
 
 #define Packed __attribute__((packed))
 
-enum class ResponseCode: uint8_t {
+enum class ResponseCode : uint8_t {
 	OK = 7,
 	FAIL,
 	UNKNOWN_PACKET,
@@ -13,7 +13,7 @@ enum class ResponseCode: uint8_t {
 	SAMPLE_RESULT = 40,
 };
 
-enum PacketType: uint8_t {
+enum PacketType : uint8_t {
 	PING = 1,
 	GET_CHIP_INFO,
 	RESTART,
@@ -38,6 +38,7 @@ enum PacketType: uint8_t {
 	I2C_END,
 	I2C_SEND,
 	I2C_TRANSACTION,
+	I2C_SCAN,
 };
 
 struct Packed PinConfigPacket {
@@ -59,7 +60,7 @@ struct Packed CanBeginPacket {
 	long baud;
 };
 
-struct Packed CanBeginResponse {
+struct Packed ResultResponse {
 	int result;
 };
 
@@ -88,9 +89,29 @@ struct Packed UartDataPacket {
 	uint8_t data[256];
 };
 
+struct Packed I2cBeginRequest {
+	uint32_t frequency;
+};
+
 struct Packed I2cDataPacket {
+	uint8_t address;
 	uint32_t dataLength;
 	uint8_t data[256];
+};
+
+struct Packed I2cTransactionPacket {
+	uint8_t address;
+
+	uint32_t dataLength;
+	uint8_t data[128];
+
+	uint32_t requestLength;
+	uint8_t result[128];
+};
+
+struct Packed I2CScanResult {
+	uint8_t found;
+	uint8_t addresses[128];
 };
 
 struct Packed SamplingPacket {

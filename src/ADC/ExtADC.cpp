@@ -9,7 +9,7 @@ void ExtADC::init() {
 	pinMode(readyPin, INPUT);
 	attachInterruptArg(digitalPinToInterrupt(readyPin), ExtADC::adcReady, this, RISING);
 
-	ads = new ADS1115(i2cAddress);
+	ads = new ADS1115(i2cAddress, &Wire1);
 
 	ads->setMode(0);
 	ads->setGain(1);	  // 6.144 volt

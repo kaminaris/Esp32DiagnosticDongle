@@ -10,6 +10,8 @@ NimBLECharacteristic* pDebugCharacteristic;
 NimBLECharacteristic* pCanCharacteristic;
 NimBLECharacteristic* pSamplingCharacteristic;
 NimBLECharacteristic* pUartCharacteristic;
+NimBLECharacteristic* pI2CCharacteristic;
+NimBLECharacteristic* pSPICharacteristic;
 
 struct BasicResponse okResponse = {(uint8_t)ResponseCode::OK};
 struct BasicResponse failResponse = {(uint8_t)ResponseCode::FAIL};
@@ -98,6 +100,36 @@ void sendUartQueue(void* p) {
 	vTaskDelete(nullptr);
 }
 
+void i2cOnReceive(int bytes) {
+	struct I2cDataPacket frame = {.dataLength = 0, .data = {}};
+	Serial.printf("Received %d bytes from i2C\n", bytes);
+
+	while (Wire.available()) {
+		frame.data[frame.dataLength] = Wire.read();
+		frame.dataLength += 1;
+	}
+
+	xQueueSend(i2cQueue, &frame, 0);
+}
+
+void sendI2CQueue(void* p) {
+	struct I2cDataPacket frame = {};
+	while (true) {
+		if (xQueueReceive(i2cQueue, &frame, 0) == pdPASS) {
+			pI2CCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
+			pI2CCharacteristic->notify();
+		}
+
+		delay(10);
+
+		if (!i2cStarted) {
+			break;
+		}
+	}
+
+	vTaskDelete(nullptr);
+}
+
 void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 	auto rxValue = pCharacteristic->getValue();
 
@@ -169,7 +201,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 					canStarted = true;
 				}
 
-				AppSerial::respondCanResult(result);
+				AppSerial::respondResult(result);
 				break;
 			}
 
@@ -203,7 +235,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				}
 
 				if (result != 1) {
-					AppSerial::respondCanResult(result);
+					AppSerial::respondResult(result);
 					break;
 				}
 
@@ -213,7 +245,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 				result = CAN.endPacket();
 
-				AppSerial::respondCanResult(result);
+				AppSerial::respondResult(result);
 				break;
 			}
 
@@ -270,41 +302,91 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 			case PacketType::I2C_BEGIN: {
 				if (i2cStarted) {
-					uartStarted = false;
-					Serial2.end(true);
+					i2cStarted = false;
+					Wire.end();
 					// Allow task to finish before starting up again
 					delay(20);
 				}
 
-				auto request = (UartBeginRequest*)data;
-				Serial2.begin(request->baud, request->config, 16, 17);
-				Serial2.onReceive(uartOnReceive, true);
-				appSerial.printf("Starting UART baud: %d", request->baud);
+				auto request = (I2cBeginRequest*)data;
+				auto success = Wire.begin(21, 22, request->frequency);
+				if (success) {
+					Wire.onReceive(i2cOnReceive);
+					appSerial.printf("Starting I2C frequency: %d", request->frequency);
 
-				xTaskCreatePinnedToCore(sendUartQueue, "UartSend", 2048, nullptr, 0, nullptr, 0);
-				uartStarted = true;
+					xTaskCreatePinnedToCore(sendI2CQueue, "I2CSend", 2048, nullptr, 0, nullptr, 0);
+					i2cStarted = true;
 
-				AppSerial::respondOk();
+					AppSerial::respondOk();
+				}
+				else {
+					AppSerial::respondFail();
+				}
+
 				break;
 			}
 
-			case PacketType::UART_END: {
-				if (!uartStarted) {
+			case PacketType::I2C_END: {
+				if (!i2cStarted) {
 					AppSerial::respondOk();
 					break;
 				}
-				uartStarted = false;
-				Serial2.end(true);
+				i2cStarted = false;
+				Wire.end();
 
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::UART_SEND: {
-				auto request = (UartDataPacket*)data;
-				Serial2.write(request->data, request->dataLength);
+			case PacketType::I2C_SEND: {
+				auto request = (I2cDataPacket*)data;
+				Serial.printf("Writing I2C addr: %d, bytes: %d\n", request->address, request->dataLength);
+				Wire.beginTransmission(request->address);
+				Wire.write(request->data, request->dataLength);
+				auto result = Wire.endTransmission();
 
-				AppSerial::respondOk();
+				AppSerial::respondResult(result);
+				break;
+			}
+
+			case PacketType::I2C_TRANSACTION: {
+				auto request = (I2cTransactionPacket*)data;
+
+				Wire.beginTransmission(request->address);
+				Wire.write(request->data, request->dataLength);
+				Wire.endTransmission(false);
+
+				auto rxCount = Wire.requestFrom(request->address, request->requestLength, true);
+				auto readFromBufferCount = Wire.readBytes(request->result, rxCount);
+
+				if (readFromBufferCount != request->requestLength) {
+					AppSerial::respondFail();
+				}
+				else {
+					Serial.printf("WIN transaction %d\n", rxCount);
+					for ()
+					pTxCharacteristic->setValue((uint8_t*)request, sizeof(I2cTransactionPacket));
+					pTxCharacteristic->notify();
+				}
+				break;
+			}
+
+			case PacketType::I2C_SCAN: {
+				Serial.println("I2C scanner. Scanning ...");
+				struct I2CScanResult result = {0};
+
+				for (uint8_t i = 8; i < 120; i++) {
+					Wire.beginTransmission(i);
+					if (Wire.endTransmission() == 0) {
+						Serial.printf("Found address: %d\n", i);
+						result.addresses[result.found] = i;
+						result.found++;
+					}
+				}
+
+				pTxCharacteristic->setValue((uint8_t*)&result, sizeof(result));
+				pTxCharacteristic->notify();
+
 				break;
 			}
 
@@ -461,6 +543,8 @@ void AppSerial::setup() {
 	pCanCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_CAN, NIMBLE_PROPERTY::NOTIFY);
 	pSamplingCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_SAMPLING, NIMBLE_PROPERTY::NOTIFY);
 	pUartCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_UART, NIMBLE_PROPERTY::NOTIFY);
+	pI2CCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_I2C, NIMBLE_PROPERTY::NOTIFY);
+	pSPICharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_SPI, NIMBLE_PROPERTY::NOTIFY);
 
 	auto pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, NIMBLE_PROPERTY::WRITE_NR);
 	pRxCharacteristic->setCallbacks(new MyCallbacks());
@@ -493,8 +577,8 @@ void AppSerial::respondFail() {
 	pTxCharacteristic->notify();
 }
 
-void AppSerial::respondCanResult(int result) {
-	struct CanBeginResponse response = {.result = result};
+void AppSerial::respondResult(int result) {
+	struct ResultResponse response = {.result = result};
 
 	pTxCharacteristic->setValue((uint8_t*)&response, sizeof(response));
 	pTxCharacteristic->notify();

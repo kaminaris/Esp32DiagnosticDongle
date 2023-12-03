@@ -57,7 +57,7 @@ void setup() {
 	AppSerial::setup();
 	Serial.println("Booted!");
 
-	Wire.begin(33, 32);
+	Wire1.begin(33, 32);
 	ADS5V.init();
 	ADS20V.init();
 	ADS200V.init();
