@@ -1,5 +1,7 @@
 #include "AppSerial.h"
 
+#include "UARTWrapper/UARTWrapper.h"
+
 extern ExtADC ADS5V;
 extern ExtADC ADS20V;
 extern ExtADC ADS200V;
@@ -21,8 +23,7 @@ struct ProgressResponse progressResponse = {.r = (uint8_t)ResponseCode::PROGRESS
 bool canStarted = false;
 auto canQueue = xQueueCreate(10, sizeof(CanFramePacket));
 
-bool uartStarted = false;
-auto uartQueue = xQueueCreate(10, sizeof(UartDataPacket));
+UARTWrapper uartWrapper;
 
 bool i2cStarted = false;
 auto i2cQueue = xQueueCreate(10, sizeof(I2cDataPacket));
@@ -59,40 +60,6 @@ void sendCanQueue(void* p) {
 		delay(10);
 
 		if (!canStarted) {
-			break;
-		}
-	}
-
-	vTaskDelete(nullptr);
-}
-
-void uartOnReceive() {
-	size_t available;
-	struct UartDataPacket frame = {.dataLength = 0, .data = {}};
-
-	while ((available = Serial2.available())) {
-		auto read = Serial2.read(&frame.data[frame.dataLength], available);
-		frame.dataLength += read;
-		if (read != available) {
-			Serial.printf("Failed to read all data %d %d\n", read, available);
-			return;
-		}
-	}
-
-	xQueueSend(uartQueue, &frame, 0);
-}
-
-void sendUartQueue(void* p) {
-	struct UartDataPacket frame = {};
-	while (true) {
-		if (xQueueReceive(uartQueue, &frame, 0) == pdPASS) {
-			pUartCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
-			pUartCharacteristic->notify();
-		}
-
-		delay(10);
-
-		if (!uartStarted) {
 			break;
 		}
 	}
@@ -261,32 +228,15 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::UART_BEGIN: {
-				if (uartStarted) {
-					uartStarted = false;
-					Serial2.end(true);
-					// Allow task to finish before starting up again
-					delay(20);
-				}
-
 				auto request = (UartBeginRequest*)data;
-				Serial2.begin(request->baud, request->config, 16, 17);
-				Serial2.onReceive(uartOnReceive, true);
-				appSerial.printf("Starting UART baud: %d", request->baud);
-
-				xTaskCreatePinnedToCore(sendUartQueue, "UartSend", 2048, nullptr, 0, nullptr, 0);
-				uartStarted = true;
+				uartWrapper.begin(request, pUartCharacteristic);
 
 				AppSerial::respondOk();
 				break;
 			}
 
 			case PacketType::UART_END: {
-				if (!uartStarted) {
-					AppSerial::respondOk();
-					break;
-				}
-				uartStarted = false;
-				Serial2.end(true);
+				uartWrapper.end();
 
 				AppSerial::respondOk();
 				break;
@@ -294,7 +244,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 			case PacketType::UART_SEND: {
 				auto request = (UartDataPacket*)data;
-				Serial2.write(request->data, request->dataLength);
+				uartWrapper.send(request);
 
 				AppSerial::respondOk();
 				break;
@@ -364,7 +314,6 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				}
 				else {
 					Serial.printf("WIN transaction %d\n", rxCount);
-					for ()
 					pTxCharacteristic->setValue((uint8_t*)request, sizeof(I2cTransactionPacket));
 					pTxCharacteristic->notify();
 				}
