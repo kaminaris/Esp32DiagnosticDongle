@@ -61,6 +61,7 @@ struct Packed CanBeginPacket {
 };
 
 struct Packed ResultResponse {
+	ResponseCode code;
 	int result;
 };
 
@@ -114,28 +115,10 @@ struct Packed I2CScanResult {
 	uint8_t addresses[128];
 };
 
-struct Packed SamplingPacket {
-	uint16_t rail5VChannel1;
-	uint16_t rail5VChannel2;
-	uint16_t rail5VChannel3;
-
-	uint16_t rail20VChannel1;
-	uint16_t rail20VChannel2;
-	uint16_t rail20VChannel3;
-
-	uint16_t rail200VChannel1;
-	uint16_t rail200VChannel2;
-	uint16_t rail200VChannel3;
-};
-
 // System packets
 
 struct Packed PingPacket {
 	uint8_t q;
-};
-
-struct Packed BasicResponse {
-	uint8_t r;
 };
 
 struct Packed ProgressResponse {

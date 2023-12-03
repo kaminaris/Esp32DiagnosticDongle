@@ -1,6 +1,6 @@
 #include "AppSerial.h"
 
-#include "UARTWrapper/UARTWrapper.h"
+#include "I2CWrapper/I2CWrapper.h"
 
 extern ExtADC ADS5V;
 extern ExtADC ADS20V;
@@ -15,87 +15,14 @@ NimBLECharacteristic* pUartCharacteristic;
 NimBLECharacteristic* pI2CCharacteristic;
 NimBLECharacteristic* pSPICharacteristic;
 
-struct BasicResponse okResponse = {(uint8_t)ResponseCode::OK};
-struct BasicResponse failResponse = {(uint8_t)ResponseCode::FAIL};
-struct BasicResponse unknownPacketResponse = {(uint8_t)ResponseCode::UNKNOWN_PACKET};
+struct ResultResponse okResponse = {.code = ResponseCode::OK, .result = 0};
+struct ResultResponse failResponse = {.code = ResponseCode::FAIL, .result = 0};
+struct ResultResponse unknownPacketResponse = {.code = ResponseCode::UNKNOWN_PACKET, .result = 0};
 struct ProgressResponse progressResponse = {.r = (uint8_t)ResponseCode::PROGRESS, .progress = 0};
 
-bool canStarted = false;
-auto canQueue = xQueueCreate(10, sizeof(CanFramePacket));
-
 UARTWrapper uartWrapper;
-
-bool i2cStarted = false;
-auto i2cQueue = xQueueCreate(10, sizeof(I2cDataPacket));
-
-void onReceive(int packetSize) {
-	struct CanFramePacket frame = {
-		.id = CAN.packetId(),
-		.extended = CAN.packetExtended(),
-		.remoteTransmissionRequest = CAN.packetRtr(),
-		.requestLength = CAN.packetDlc(),
-		.packetSize = packetSize,
-		.data = {0},
-	};
-
-	uint8_t pos = 0;
-	if (!CAN.packetRtr()) {
-		while (CAN.available()) {
-			frame.data[pos] = (uint8_t)CAN.read();
-			// Serial.print((char)CAN.read());
-			pos++;
-		}
-	}
-	xQueueSend(canQueue, &frame, 0);
-}
-
-void sendCanQueue(void* p) {
-	struct CanFramePacket frame = {};
-	while (true) {
-		if (xQueueReceive(canQueue, &frame, 0) == pdPASS) {
-			pCanCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
-			pCanCharacteristic->notify();
-		}
-
-		delay(10);
-
-		if (!canStarted) {
-			break;
-		}
-	}
-
-	vTaskDelete(nullptr);
-}
-
-void i2cOnReceive(int bytes) {
-	struct I2cDataPacket frame = {.dataLength = 0, .data = {}};
-	Serial.printf("Received %d bytes from i2C\n", bytes);
-
-	while (Wire.available()) {
-		frame.data[frame.dataLength] = Wire.read();
-		frame.dataLength += 1;
-	}
-
-	xQueueSend(i2cQueue, &frame, 0);
-}
-
-void sendI2CQueue(void* p) {
-	struct I2cDataPacket frame = {};
-	while (true) {
-		if (xQueueReceive(i2cQueue, &frame, 0) == pdPASS) {
-			pI2CCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
-			pI2CCharacteristic->notify();
-		}
-
-		delay(10);
-
-		if (!i2cStarted) {
-			break;
-		}
-	}
-
-	vTaskDelete(nullptr);
-}
+CANWrapper canWrapper;
+I2CWrapper i2cWrapper;
 
 void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 	auto rxValue = pCharacteristic->getValue();
@@ -154,27 +81,14 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 			case PacketType::CAN_BEGIN: {
 				auto* request = (CanBeginPacket*)data;	// we can use same packet
+				auto result = canWrapper.begin(request, pCanCharacteristic);
 
-				// Board has CAN on gpio pins on 2 and 4
-				CAN.setPins(GPIO_NUM_2, GPIO_NUM_4);
-				auto result = CAN.begin(request->baud);
-				appSerial.printf("Starting CANBUS baud: %ld, result: %d", request->baud, result);
-
-				CAN.onReceive(onReceive);
-				CAN.loopback();
-
-				if (result == 1) {
-					xTaskCreatePinnedToCore(sendCanQueue, "CanSend", 2048, nullptr, 0, nullptr, 0);
-					canStarted = true;
-				}
-
-				AppSerial::respondResult(result);
+				AppSerial::respondResult((result == ESP_OK) ? ResponseCode::OK : ResponseCode::FAIL, result);
 				break;
 			}
 
 			case PacketType::CAN_END: {
-				canStarted = false;
-				CAN.end();
+				canWrapper.end();
 
 				AppSerial::respondOk();
 				break;
@@ -182,37 +96,9 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 			case PacketType::CAN_SEND: {
 				auto* request = (CanFramePacket*)data;
-				// appSerial.printf(
-				// 	"Sending CANBUS packet id: %ld, size: %d, ext: %d, rtr: %d, rl: %d, tst: %d\n",
-				// 	request->id,
-				// 	request->packetSize,
-				// 	request->extended,
-				// 	request->remoteTransmissionRequest,
-				// 	request->requestLength,
-				// 	sizeof(long)
-				// );
-				int result;
-				if (request->extended) {
-					result = CAN.beginExtendedPacket(
-						request->id, request->requestLength, request->remoteTransmissionRequest
-					);
-				}
-				else {
-					result = CAN.beginPacket(request->id, request->requestLength, request->remoteTransmissionRequest);
-				}
+				auto result = canWrapper.send(request);
 
-				if (result != 1) {
-					AppSerial::respondResult(result);
-					break;
-				}
-
-				for (int i = 0; i < request->packetSize; i++) {
-					CAN.write(request->data[i]);
-				}
-
-				result = CAN.endPacket();
-
-				AppSerial::respondResult(result);
+				AppSerial::respondResult(result == 1 ? ResponseCode::OK : ResponseCode::FAIL, result);
 				break;
 			}
 
@@ -251,69 +137,31 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::I2C_BEGIN: {
-				if (i2cStarted) {
-					i2cStarted = false;
-					Wire.end();
-					// Allow task to finish before starting up again
-					delay(20);
-				}
-
 				auto request = (I2cBeginRequest*)data;
-				auto success = Wire.begin(21, 22, request->frequency);
-				if (success) {
-					Wire.onReceive(i2cOnReceive);
-					appSerial.printf("Starting I2C frequency: %d", request->frequency);
+				auto result = i2cWrapper.begin(request, pI2CCharacteristic);
 
-					xTaskCreatePinnedToCore(sendI2CQueue, "I2CSend", 2048, nullptr, 0, nullptr, 0);
-					i2cStarted = true;
-
-					AppSerial::respondOk();
-				}
-				else {
-					AppSerial::respondFail();
-				}
-
+				AppSerial::respondResult(result == ESP_OK ? ResponseCode::OK : ResponseCode::FAIL, result);
 				break;
 			}
 
 			case PacketType::I2C_END: {
-				if (!i2cStarted) {
-					AppSerial::respondOk();
-					break;
-				}
-				i2cStarted = false;
-				Wire.end();
-
+				i2cWrapper.end();
 				AppSerial::respondOk();
 				break;
 			}
 
 			case PacketType::I2C_SEND: {
 				auto request = (I2cDataPacket*)data;
-				Serial.printf("Writing I2C addr: %d, bytes: %d\n", request->address, request->dataLength);
-				Wire.beginTransmission(request->address);
-				Wire.write(request->data, request->dataLength);
-				auto result = Wire.endTransmission();
+				auto result = i2cWrapper.send(request);
 
-				AppSerial::respondResult(result);
+				AppSerial::respondResult(result == ESP_OK ? ResponseCode::OK : ResponseCode::FAIL, result);
 				break;
 			}
 
 			case PacketType::I2C_TRANSACTION: {
 				auto request = (I2cTransactionPacket*)data;
-
-				Wire.beginTransmission(request->address);
-				Wire.write(request->data, request->dataLength);
-				Wire.endTransmission(false);
-
-				auto rxCount = Wire.requestFrom(request->address, request->requestLength, true);
-				auto readFromBufferCount = Wire.readBytes(request->result, rxCount);
-
-				if (readFromBufferCount != request->requestLength) {
-					AppSerial::respondFail();
-				}
-				else {
-					Serial.printf("WIN transaction %d\n", rxCount);
+				auto result = i2cWrapper.transaction(request);
+				if (result == ESP_OK) {
 					pTxCharacteristic->setValue((uint8_t*)request, sizeof(I2cTransactionPacket));
 					pTxCharacteristic->notify();
 				}
@@ -321,17 +169,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 			}
 
 			case PacketType::I2C_SCAN: {
-				Serial.println("I2C scanner. Scanning ...");
-				struct I2CScanResult result = {0};
-
-				for (uint8_t i = 8; i < 120; i++) {
-					Wire.beginTransmission(i);
-					if (Wire.endTransmission() == 0) {
-						Serial.printf("Found address: %d\n", i);
-						result.addresses[result.found] = i;
-						result.found++;
-					}
-				}
+				auto result = i2cWrapper.scan();
 
 				pTxCharacteristic->setValue((uint8_t*)&result, sizeof(result));
 				pTxCharacteristic->notify();
@@ -526,7 +364,7 @@ void AppSerial::respondFail() {
 	pTxCharacteristic->notify();
 }
 
-void AppSerial::respondResult(int result) {
+void AppSerial::respondResult(ResponseCode code, int result) {
 	struct ResultResponse response = {.result = result};
 
 	pTxCharacteristic->setValue((uint8_t*)&response, sizeof(response));

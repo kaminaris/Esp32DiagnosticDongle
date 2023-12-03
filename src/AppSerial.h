@@ -11,6 +11,8 @@
 #include <cstring>
 
 #include "ADC/ExtADC.h"
+#include "CANWrapper/CANWrapper.h"
+#include "UARTWrapper/UARTWrapper.h"
 #include "SPIFFS.h"
 #include "packets.h"
 
@@ -47,7 +49,7 @@ class AppSerial : public Print {
 	static void setup();
 	static void respondOk();
 	static void respondFail();
-	static void respondResult(int result);
+	static void respondResult(ResponseCode code, int result = 0);
 	static void respondUnknownPacket();
 };
 
