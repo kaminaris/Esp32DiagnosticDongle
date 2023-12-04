@@ -12,8 +12,10 @@
 
 #include "ADC/ExtADC.h"
 #include "CANWrapper/CANWrapper.h"
-#include "UARTWrapper/UARTWrapper.h"
+#include "I2CWrapper/I2CWrapper.h"
 #include "SPIFFS.h"
+#include "SPIWrapper/SPIWrapper.h"
+#include "UARTWrapper/UARTWrapper.h"
 #include "packets.h"
 
 constexpr char BLE_DEV_NAME[] = "DiagnosticDongle";
@@ -25,7 +27,6 @@ constexpr char CHARACTERISTIC_UUID_CAN[] = "9C12D205-CBC3-413B-963B-9E49FF7E7D61
 constexpr char CHARACTERISTIC_UUID_SAMPLING[] = "9C12D206-CBC3-413B-963B-9E49FF7E7D61";
 constexpr char CHARACTERISTIC_UUID_UART[] = "9C12D207-CBC3-413B-963B-9E49FF7E7D61";
 constexpr char CHARACTERISTIC_UUID_I2C[] = "9C12D208-CBC3-413B-963B-9E49FF7E7D61";
-constexpr char CHARACTERISTIC_UUID_SPI[] = "9C12D209-CBC3-413B-963B-9E49FF7E7D61";
 
 #define DUAL_SERIAL
 

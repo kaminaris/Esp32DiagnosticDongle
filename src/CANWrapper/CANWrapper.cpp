@@ -15,7 +15,7 @@ int CANWrapper::begin(CanBeginPacket* request, NimBLECharacteristic* bleChar) {
 
 	if (result == 1) {
 		xTaskCreatePinnedToCore(sendQueue, "CanSend", 2048, this, 0, nullptr, 0);
-		canStarted = true;
+		started = true;
 	}
 
 	return result;
@@ -40,7 +40,7 @@ void CANWrapper::onReceive(int packetSize) const {
 		}
 	}
 
-	xQueueSend(canQueue, &frame, 0);
+	xQueueSend(queue, &frame, 0);
 }
 
 void CANWrapper::sendQueue(void* p) {
@@ -48,14 +48,14 @@ void CANWrapper::sendQueue(void* p) {
 
 	struct CanFramePacket frame = {};
 	while (true) {
-		if (xQueueReceive(instance->canQueue, &frame, 0) == pdPASS) {
+		if (xQueueReceive(instance->queue, &frame, 0) == pdPASS) {
 			instance->bleCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
 			instance->bleCharacteristic->notify();
 		}
 
 		delay(10);
 
-		if (!instance->canStarted) {
+		if (!instance->started) {
 			break;
 		}
 	}
@@ -64,7 +64,7 @@ void CANWrapper::sendQueue(void* p) {
 }
 
 void CANWrapper::end() {
-	canStarted = false;
+	started = false;
 	CAN.end();
 }
 

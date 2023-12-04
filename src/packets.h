@@ -9,8 +9,6 @@ enum class ResponseCode : uint8_t {
 	FAIL,
 	UNKNOWN_PACKET,
 	PROGRESS,
-
-	SAMPLE_RESULT = 40,
 };
 
 enum PacketType : uint8_t {
@@ -39,6 +37,10 @@ enum PacketType : uint8_t {
 	I2C_SEND,
 	I2C_TRANSACTION,
 	I2C_SCAN,
+
+	SPI_BEGIN = 70,
+	SPI_END,
+	SPI_TRANSACTION,
 };
 
 struct Packed PinConfigPacket {
@@ -88,6 +90,15 @@ struct Packed UartBeginRequest {
 struct Packed UartDataPacket {
 	uint32_t dataLength;
 	uint8_t data[256];
+};
+
+struct Packed SPIDataPacket {
+	uint32_t clock;
+	uint8_t bitOrder;
+	uint8_t dataMode;
+	uint32_t dataLength;
+	uint8_t data[128];
+	uint8_t result[128];
 };
 
 struct Packed I2cBeginRequest {

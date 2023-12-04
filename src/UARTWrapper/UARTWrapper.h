@@ -6,9 +6,9 @@
 
 class UARTWrapper {
 	public:
-	bool uartStarted = false;
+	bool started = false;
 	NimBLECharacteristic* bleCharacteristic = nullptr;
-	QueueDefinition* uartQueue = xQueueCreate(10, sizeof(UartDataPacket));
+	QueueDefinition* queue = xQueueCreate(10, sizeof(UartDataPacket));
 	void begin(UartBeginRequest* request, NimBLECharacteristic* bleChar);
 	void end();
 	void send(UartDataPacket* pPacket);

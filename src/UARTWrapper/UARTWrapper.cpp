@@ -2,8 +2,8 @@
 
 void UARTWrapper::begin(UartBeginRequest* request, NimBLECharacteristic* bleChar) {
 	bleCharacteristic = bleChar;
-	if (uartStarted) {
-		uartStarted = false;
+	if (started) {
+		started = false;
 		Serial2.end(true);
 		// Allow task to finish before starting up again
 		delay(20);
@@ -16,7 +16,7 @@ void UARTWrapper::begin(UartBeginRequest* request, NimBLECharacteristic* bleChar
 	Serial.printf("Starting UART baud: %d", request->baud);
 
 	xTaskCreatePinnedToCore(UARTWrapper::sendQueue, "UartSend", 2048, this, 0, nullptr, 0);
-	uartStarted = true;
+	started = true;
 }
 
 void UARTWrapper::onReceive() const {
@@ -32,7 +32,7 @@ void UARTWrapper::onReceive() const {
 		}
 	}
 
-	xQueueSend(uartQueue, &frame, 0);
+	xQueueSend(queue, &frame, 0);
 }
 
 void UARTWrapper::sendQueue(void* p) {
@@ -40,14 +40,14 @@ void UARTWrapper::sendQueue(void* p) {
 
 	struct UartDataPacket frame = {};
 	while (true) {
-		if (xQueueReceive(instance->uartQueue, &frame, 0) == pdPASS) {
+		if (xQueueReceive(instance->queue, &frame, 0) == pdPASS) {
 			instance->bleCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
 			instance->bleCharacteristic->notify();
 		}
 
 		delay(10);
 
-		if (!instance->uartStarted) {
+		if (!instance->started) {
 			break;
 		}
 	}
@@ -56,10 +56,10 @@ void UARTWrapper::sendQueue(void* p) {
 }
 
 void UARTWrapper::end() {
-	if (!uartStarted) {
+	if (!started) {
 		return;
 	}
-	uartStarted = false;
+	started = false;
 	Serial2.end(true);
 
 }

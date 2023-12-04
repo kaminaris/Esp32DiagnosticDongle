@@ -8,8 +8,8 @@
 
 class CANWrapper {
 	public:
-	bool canStarted = false;
-	QueueDefinition* canQueue = xQueueCreate(10, sizeof(CanFramePacket));
+	bool started = false;
+	QueueDefinition* queue = xQueueCreate(10, sizeof(CanFramePacket));
 	NimBLECharacteristic* bleCharacteristic = nullptr;
 
 	int begin(CanBeginPacket* request, NimBLECharacteristic* bleChar);

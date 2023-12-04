@@ -18,8 +18,8 @@ std::function<Ret(Params...)> Callback<Ret(Params...)>::func;
 int I2CWrapper::begin(I2cBeginRequest* request, NimBLECharacteristic* bleChar) {
 	bleCharacteristic = bleChar;
 
-	if (i2cStarted) {
-		i2cStarted = false;
+	if (started) {
+		started = false;
 		Wire.end();
 		// Allow task to finish before starting up again
 		delay(20);
@@ -35,7 +35,7 @@ int I2CWrapper::begin(I2cBeginRequest* request, NimBLECharacteristic* bleChar) {
 		Serial.printf("Starting I2C frequency: %d", request->frequency);
 
 		xTaskCreatePinnedToCore(sendQueue, "I2CSend", 2048, this, 0, nullptr, 0);
-		i2cStarted = true;
+		started = true;
 
 		return ESP_OK;
 	}
@@ -51,7 +51,7 @@ void I2CWrapper::onReceive(int bytes) {
 		frame.dataLength += 1;
 	}
 
-	xQueueSend(i2cQueue, &frame, 0);
+	xQueueSend(queue, &frame, 0);
 }
 
 void I2CWrapper::sendQueue(void* p) {
@@ -59,14 +59,14 @@ void I2CWrapper::sendQueue(void* p) {
 
 	struct I2cDataPacket frame = {};
 	while (true) {
-		if (xQueueReceive(instance->i2cQueue, &frame, 0) == pdPASS) {
+		if (xQueueReceive(instance->queue, &frame, 0) == pdPASS) {
 			instance->bleCharacteristic->setValue((uint8_t*)&frame, sizeof(frame));
 			instance->bleCharacteristic->notify();
 		}
 
 		delay(10);
 
-		if (!instance->i2cStarted) {
+		if (!instance->started) {
 			break;
 		}
 	}
@@ -75,11 +75,11 @@ void I2CWrapper::sendQueue(void* p) {
 }
 
 void I2CWrapper::end() {
-	if (!i2cStarted) {
+	if (!started) {
 		return;
 	}
 
-	i2cStarted = false;
+	started = false;
 	Wire.end();
 }
 

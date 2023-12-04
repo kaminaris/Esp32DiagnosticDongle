@@ -10,8 +10,8 @@ typedef void (*WireCallback)(int);
 
 class I2CWrapper {
 	public:
-	bool i2cStarted = false;
-	QueueDefinition* i2cQueue = xQueueCreate(10, sizeof(I2cDataPacket));
+	bool started = false;
+	QueueDefinition* queue = xQueueCreate(10, sizeof(I2cDataPacket));
 	NimBLECharacteristic* bleCharacteristic = nullptr;
 
 	int begin(I2cBeginRequest* request, NimBLECharacteristic* bleChar);

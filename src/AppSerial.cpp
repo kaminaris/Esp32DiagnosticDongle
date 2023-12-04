@@ -1,7 +1,5 @@
 #include "AppSerial.h"
 
-#include "I2CWrapper/I2CWrapper.h"
-
 extern ExtADC ADS5V;
 extern ExtADC ADS20V;
 extern ExtADC ADS200V;
@@ -13,7 +11,6 @@ NimBLECharacteristic* pCanCharacteristic;
 NimBLECharacteristic* pSamplingCharacteristic;
 NimBLECharacteristic* pUartCharacteristic;
 NimBLECharacteristic* pI2CCharacteristic;
-NimBLECharacteristic* pSPICharacteristic;
 
 struct ResultResponse okResponse = {.code = ResponseCode::OK, .result = 0};
 struct ResultResponse failResponse = {.code = ResponseCode::FAIL, .result = 0};
@@ -23,6 +20,7 @@ struct ProgressResponse progressResponse = {.r = (uint8_t)ResponseCode::PROGRESS
 UARTWrapper uartWrapper;
 CANWrapper canWrapper;
 I2CWrapper i2cWrapper;
+SPIWrapper spiWrapper;
 
 void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 	auto rxValue = pCharacteristic->getValue();
@@ -174,6 +172,27 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				pTxCharacteristic->setValue((uint8_t*)&result, sizeof(result));
 				pTxCharacteristic->notify();
 
+				break;
+			}
+
+			case PacketType::SPI_BEGIN: {
+				spiWrapper.begin();
+				AppSerial::respondOk();
+				break;
+			}
+
+			case PacketType::SPI_END: {
+				spiWrapper.end();
+				AppSerial::respondOk();
+				break;
+			}
+
+			case PacketType::SPI_TRANSACTION: {
+				auto request = (SPIDataPacket*)data;
+				spiWrapper.transaction(request);
+
+				pTxCharacteristic->setValue((uint8_t*)request, sizeof(SPIDataPacket));
+				pTxCharacteristic->notify();
 				break;
 			}
 
@@ -331,7 +350,6 @@ void AppSerial::setup() {
 	pSamplingCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_SAMPLING, NIMBLE_PROPERTY::NOTIFY);
 	pUartCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_UART, NIMBLE_PROPERTY::NOTIFY);
 	pI2CCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_I2C, NIMBLE_PROPERTY::NOTIFY);
-	pSPICharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_SPI, NIMBLE_PROPERTY::NOTIFY);
 
 	auto pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, NIMBLE_PROPERTY::WRITE_NR);
 	pRxCharacteristic->setCallbacks(new MyCallbacks());
