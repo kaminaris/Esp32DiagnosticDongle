@@ -15,8 +15,11 @@
 #include "I2CWrapper/I2CWrapper.h"
 #include "SPIFFS.h"
 #include "SPIWrapper/SPIWrapper.h"
-#include "UARTWrapper/UARTWrapper.h"
 #include "packets.h"
+
+import FirmwareUpgrade;
+import TestModule;
+// import UARTWrapper;
 
 constexpr char BLE_DEV_NAME[] = "DiagnosticDongle";
 constexpr char SERVICE_UUID[] = "9C12D201-CBC3-413B-963B-9E49FF7E7D61";
@@ -46,12 +49,10 @@ class AppSerial : public Print {
 	public:
 	size_t write(uint8_t) override;
 	size_t write(const uint8_t* buffer, size_t size) override;
-	void notifySampling(const uint8_t* buffer, size_t size);
+	static void notifySampling(const uint8_t* buffer, size_t size);
 	static void setup();
 	static void respondOk();
 	static void respondFail();
 	static void respondResult(ResponseCode code, int result = 0);
 	static void respondUnknownPacket();
 };
-
-extern AppSerial appSerial;

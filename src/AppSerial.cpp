@@ -12,12 +12,12 @@ NimBLECharacteristic* pSamplingCharacteristic;
 NimBLECharacteristic* pUartCharacteristic;
 NimBLECharacteristic* pI2CCharacteristic;
 
-struct ResultResponse okResponse = {.code = ResponseCode::OK, .result = 0};
-struct ResultResponse failResponse = {.code = ResponseCode::FAIL, .result = 0};
-struct ResultResponse unknownPacketResponse = {.code = ResponseCode::UNKNOWN_PACKET, .result = 0};
-struct ProgressResponse progressResponse = {.r = (uint8_t)ResponseCode::PROGRESS, .progress = 0};
+ResultResponse okResponse = {.code = ResponseCode::OK, .result = 0};
+ResultResponse failResponse = {.code = ResponseCode::FAIL, .result = 0};
+ResultResponse unknownPacketResponse = {.code = ResponseCode::UNKNOWN_PACKET, .result = 0};
 
-UARTWrapper uartWrapper;
+FirmwareUpgrade upgrade;
+// UARTWrapper* uartWrapper;
 CANWrapper canWrapper;
 I2CWrapper i2cWrapper;
 SPIWrapper spiWrapper;
@@ -35,7 +35,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 		// Serial.printf("Received packet: %d", packetType);
 
 		switch (packetType) {
-			case PacketType::PIN_CONFIGURE: {
+			case PIN_CONFIGURE: {
 				auto* request = (PinConfigPacket*)data;
 
 				pinMode(request->pin, request->mode);
@@ -44,7 +44,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::PIN_WRITE: {
+			case PIN_WRITE: {
 				auto* request = (PinWritePacket*)data;
 
 				digitalWrite(request->pin, request->value);
@@ -53,7 +53,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::PIN_READ: {
+			case PIN_READ: {
 				auto* request = (PinWritePacket*)data;	// we can use same packet
 
 				auto result = digitalRead(request->pin);
@@ -65,7 +65,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::PIN_ANALOG_READ: {
+			case PIN_ANALOG_READ: {
 				auto* request = (PinWritePacket*)data;	// we can use same packet
 
 				auto result = analogRead(request->pin);
@@ -77,7 +77,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::CAN_BEGIN: {
+			case CAN_BEGIN: {
 				auto* request = (CanBeginPacket*)data;	// we can use same packet
 				auto result = canWrapper.begin(request, pCanCharacteristic);
 
@@ -85,14 +85,14 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::CAN_END: {
+			case CAN_END: {
 				canWrapper.end();
 
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::CAN_SEND: {
+			case CAN_SEND: {
 				auto* request = (CanFramePacket*)data;
 				auto result = canWrapper.send(request);
 
@@ -100,7 +100,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::SAMPLE_CONTROL: {
+			case SAMPLE_CONTROL: {
 				auto* request = (SamplingControlPacket*)data;
 
 				ADS5V.toggleConversion(request->channel1);
@@ -111,30 +111,30 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::UART_BEGIN: {
-				auto request = (UartBeginRequest*)data;
-				uartWrapper.begin(request, pUartCharacteristic);
+			case UART_BEGIN: {
+				// auto request = (UartBeginRequest*)data;
+				// uartWrapper->begin(request, pUartCharacteristic);
 
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::UART_END: {
-				uartWrapper.end();
+			case UART_END: {
+				// uartWrapper->end();
 
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::UART_SEND: {
-				auto request = (UartDataPacket*)data;
-				uartWrapper.send(request);
+			case UART_SEND: {
+				// auto request = (UartDataPacket*)data;
+				// uartWrapper->send(request);
 
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::I2C_BEGIN: {
+			case I2C_BEGIN: {
 				auto request = (I2cBeginRequest*)data;
 				auto result = i2cWrapper.begin(request, pI2CCharacteristic);
 
@@ -142,13 +142,13 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::I2C_END: {
+			case I2C_END: {
 				i2cWrapper.end();
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::I2C_SEND: {
+			case I2C_SEND: {
 				auto request = (I2cDataPacket*)data;
 				auto result = i2cWrapper.send(request);
 
@@ -156,7 +156,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::I2C_TRANSACTION: {
+			case I2C_TRANSACTION: {
 				auto request = (I2cTransactionPacket*)data;
 				auto result = i2cWrapper.transaction(request);
 				if (result == ESP_OK) {
@@ -166,7 +166,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::I2C_SCAN: {
+			case I2C_SCAN: {
 				auto result = i2cWrapper.scan();
 
 				pTxCharacteristic->setValue((uint8_t*)&result, sizeof(result));
@@ -175,19 +175,19 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::SPI_BEGIN: {
+			case SPI_BEGIN: {
 				spiWrapper.begin();
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::SPI_END: {
+			case SPI_END: {
 				spiWrapper.end();
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::SPI_TRANSACTION: {
+			case SPI_TRANSACTION: {
 				auto request = (SPIDataPacket*)data;
 				spiWrapper.transaction(request);
 
@@ -198,7 +198,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 				// System responses
 
-			case PacketType::PING: {
+			case PING: {
 				auto* request = (PingPacket*)data;
 
 				if (request->q == 128) {
@@ -210,7 +210,7 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				break;
 			}
 
-			case PacketType::GET_CHIP_INFO: {
+			case GET_CHIP_INFO: {
 				uint64_t mac = ESP.getEfuseMac();
 
 				String info = "";
@@ -237,13 +237,14 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 					info += String(byte(mac >> (i * 8) & 0xFF), HEX);
 				}
 
-				appSerial.println(info);
+				Serial.println(info);
 				AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::FIRMWARE_UPDATE: {
-				auto* request = (FirmwareUpdateRequest*)data;
+			case FIRMWARE_UPDATE: {
+				// auto* request = (FirmwareUpdateRequest*)data;
+				// upgrade.upgradeChunk(request);
 
 				// auto chunkCrc = CRC32.crc32(request->d, request->size);
 				// if (chunkCrc != request->checksum) {
@@ -257,50 +258,51 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 				// 	break;
 				// }
 
-				if (request->chunk == 1) {
-					if (!Update.begin(request->totalSize, U_FLASH)) {
-						appSerial.println("Cannot start flash update!");
-						AppSerial::respondFail();
-						break;
-					}
-					Update.write(request->d, request->size);
-				}
-				else if (request->chunk == request->chunks) {
-					Update.write(request->d, request->size);
-					if (Update.end()) {
-						appSerial.println("Update finished!");
-						AppSerial::respondOk();
-					}
-					else {
-						appSerial.printf("Update error: %d\n", Update.getError());
-						AppSerial::respondFail();
-					}
-				}
-				else {
-					Update.write(request->d, request->size);
-				}
-
-				if (request->chunk % 50 == 0) {
-					progressResponse.progress =
-						static_cast<uint8_t>((request->chunk / static_cast<double>(request->chunks)) * 100.0);
-
-					appSerial.printf(
-						"firmware update chunk: %d/%d progress: %d%%\n",
-						request->chunk,
-						request->chunks,
-						progressResponse.progress
-					);
-
-					pTxCharacteristic->setValue((uint8_t*)&progressResponse, sizeof(progressResponse));
-					pTxCharacteristic->notify();
-				}
+				// if (request->chunk == 1) {
+				// 	if (!Update.begin(request->totalSize, U_FLASH)) {
+				// 		appSerial.println("Cannot start flash update!");
+				// 		AppSerial::respondFail();
+				// 		break;
+				// 	}
+				// 	Update.write(request->d, request->size);
+				// }
+				// else if (request->chunk == request->chunks) {
+				// 	Update.write(request->d, request->size);
+				// 	if (Update.end()) {
+				// 		appSerial.println("Update finished!");
+				// 		AppSerial::respondOk();
+				// 	}
+				// 	else {
+				// 		appSerial.printf("Update error: %d\n", Update.getError());
+				// 		AppSerial::respondFail();
+				// 	}
+				// }
+				// else {
+				// 	Update.write(request->d, request->size);
+				// }
+				//
+				// if (request->chunk % 50 == 0) {
+				// 	progressResponse.progress =
+				// 		static_cast<uint8_t>((request->chunk / static_cast<double>(request->chunks)) * 100.0);
+				//
+				// 	appSerial.printf(
+				// 		"firmware update chunk: %d/%d progress: %d%%\n",
+				// 		request->chunk,
+				// 		request->chunks,
+				// 		progressResponse.progress
+				// 	);
+				//
+				// 	pTxCharacteristic->setValue((uint8_t*)&progressResponse, sizeof(progressResponse));
+				// 	pTxCharacteristic->notify();
+				// }
 
 				// do not respond
 				// AppSerial::respondOk();
 				break;
 			}
 
-			case PacketType::RESTART: {
+			case RESTART: {
+				// TestModule::prr(8);
 				delay(1000);
 				ESP.restart();
 				break;
@@ -316,13 +318,13 @@ void MyCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
 
 void MyServerCallbacks::onConnect(NimBLEServer* server, ble_gap_conn_desc* desc) {
 	// deviceConnected = true;
-	appSerial.print("Client address: ");
-	appSerial.println(NimBLEAddress(desc->peer_ota_addr).toString().c_str());
+	Serial.print("Client address: ");
+	Serial.println(NimBLEAddress(desc->peer_ota_addr).toString().c_str());
 	server->updateConnParams(desc->conn_handle, 6, 6, 0, 60);
 }
 
 void MyServerCallbacks::onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
-	appSerial.printf("MTU updated: %u for connection ID: %u\n", MTU, desc->conn_handle);
+	Serial.printf("MTU updated: %u for connection ID: %u\n", MTU, desc->conn_handle);
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer* server) {
@@ -331,6 +333,7 @@ void MyServerCallbacks::onDisconnect(NimBLEServer* server) {
 }
 
 void AppSerial::setup() {
+	// uartWrapper = new UARTWrapper();
 	// Create the BLE Device
 	NimBLEDevice::init(BLE_DEV_NAME);
 	NimBLEDevice::setPower(ESP_PWR_LVL_P6);
@@ -369,7 +372,7 @@ void AppSerial::setup() {
 	// Start advertising
 	pAdvertising->start();
 
-	appSerial.println("Waiting a client connection to notify...");
+	Serial.println("Waiting a client connection to notify...");
 }
 
 void AppSerial::respondOk() {
@@ -427,4 +430,4 @@ void AppSerial::notifySampling(const uint8_t* buffer, size_t size) {
 	pSamplingCharacteristic->notify();
 }
 
-AppSerial appSerial;
+// AppSerial appSerial;

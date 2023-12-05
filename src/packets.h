@@ -82,16 +82,6 @@ struct Packed SamplingControlPacket {
 	uint8_t channel3;
 };
 
-struct Packed UartBeginRequest {
-	uint32_t baud;
-	uint32_t config;
-};
-
-struct Packed UartDataPacket {
-	uint32_t dataLength;
-	uint8_t data[256];
-};
-
 struct Packed SPIDataPacket {
 	uint32_t clock;
 	uint8_t bitOrder;
@@ -135,13 +125,4 @@ struct Packed PingPacket {
 struct Packed ProgressResponse {
 	uint8_t r;
 	uint8_t progress;
-};
-
-struct Packed FirmwareUpdateRequest {
-	uint32_t chunk;
-	uint32_t chunks;
-	uint16_t size;
-	uint32_t totalSize;
-	uint32_t checksum;
-	uint8_t d[450];
 };

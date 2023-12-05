@@ -9,36 +9,11 @@ ExtADC ADS5V(0x48, 14);
 ExtADC ADS20V(0x49, 13);
 ExtADC ADS200V(0x4A, 12);
 
-/*
-void Scanner() {
-	Serial.println();
-	Serial.println("I2C scanner. Scanning ...");
-	byte count = 0;
-
-	Wire.begin();
-	for (byte i = 8; i < 120; i++) {
-		Wire.beginTransmission(i);	// Begin I2C transmission Address (i)
-		// Receive 0 = success (ACK response)
-		if (Wire.endTransmission() == 0) {
-			Serial.print("Found address: ");
-			Serial.print(i, DEC);
-			Serial.print(" (0x");
-			Serial.print(i, HEX);  // PCF8574 7 bit address
-			Serial.println(")");
-			count++;
-		}
-	}
-	Serial.print("Found ");
-	Serial.print(count, DEC);  // numbers of devices
-	Serial.println(" device(s).");
-}
-*/
-
 uint8_t sampleBuffer[7];
 void channelConversionReadyCh(uint8_t rail, uint16_t ch[numberOfChannels]) {
 	sampleBuffer[0] = rail;
 	memcpy(sampleBuffer + 1, ch, 6);
-	appSerial.notifySampling((const uint8_t*)sampleBuffer, 7);
+	AppSerial::notifySampling(sampleBuffer, 7);
 }
 
 void channelConversionReadyCh1(uint16_t ch[numberOfChannels]) {
