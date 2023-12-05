@@ -1,8 +1,14 @@
 #include "ExtADC.h"
 
+#include <utility>
+
 ExtADC::ExtADC(uint8_t address, uint8_t rdyPin) {
 	readyPin = rdyPin;
 	i2cAddress = address;
+}
+
+void ExtADC::setCallback(ExtADCCallback fn) {
+	readyCallback = std::move(fn);
 }
 
 void ExtADC::init() {

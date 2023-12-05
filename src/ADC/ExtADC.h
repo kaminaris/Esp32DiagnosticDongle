@@ -5,7 +5,7 @@
 
 constexpr uint8_t numberOfChannels = 3;
 
-typedef void (*ExtADCCallback)(uint16_t ch1[numberOfChannels]);
+typedef std::function<void(uint16_t[numberOfChannels])> ExtADCCallback;
 
 class ExtADC {
 	public:
@@ -21,6 +21,7 @@ class ExtADC {
 
 	explicit ExtADC(uint8_t address, uint8_t rdyPin);
 
+	void setCallback(ExtADCCallback fn);
 	void init();
 	void startConversion();
 	void stopConversion();
